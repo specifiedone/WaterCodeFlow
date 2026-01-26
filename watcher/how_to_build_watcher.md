@@ -1,8 +1,8 @@
-# Memory Watcher Hackathon Design
+# Memory Watcher Hackathon Design (Full Python Object Edition)
 
 ## Author Note
 
-This is a **hackathon-grade, high-leverage design** for a memory-watcher system. The goal: catch *exact changes to memory in Python objects/buffers with minimal overhead*, like a pro systems debugger, but tailored for Python projects. This is written in my style: precise, focused, and performance-aware 😎.
+This is a **hackathon-grade, high-leverage design** for a memory-watcher system. The goal: catch *exact changes to any Python object, variable, or buffer with minimal overhead*, like a pro systems debugger, but tailored for Python projects. Written in my style: precise, focused, and performance-aware 😎.
 
 ---
 
@@ -10,8 +10,8 @@ This is a **hackathon-grade, high-leverage design** for a memory-watcher system.
 
 The Memory Watcher is a hybrid Python + C++ system designed to:
 
-1. Detect all changes to registered memory regions or Python objects.
-2. Capture both explicit Python variable reassignments and hidden in-place mutations.
+1. Detect all changes to registered memory regions **and all Python objects/variables**.
+2. Capture both explicit variable reassignments and hidden in-place mutations, regardless of type.
 3. Operate with near-zero overhead for non-watched memory.
 4. Provide detailed information for each change: old value, new value, variable/tag name, and line context.
 5. Work only on the code or buffers you explicitly choose (no tracing libraries, stdlib, or unrelated code).
@@ -26,31 +26,32 @@ This is **not a general-purpose full memory debugger** — it is surgical, low-l
 
 **Responsibilities:**
 
-* User interface: register/unregister memory regions or Python objects.
-* Tagging: assign logical names to variables or buffers.
+* User interface: register/unregister any Python object or memory region.
+* Tagging: assign logical names to variables, attributes, or buffers.
 * Logging: receive and process notifications from the C++ layer.
-* Optional lightweight fingerprinting for Python-only objects.
+* Optional lightweight fingerprinting for objects that cannot be memory-trapped (e.g., small immutable objects).
 
 **API Example:**
 
 ```python
 import memwatch
 
-# Register a tensor, bytearray, or numpy buffer
+# Register any Python object
+memwatch.watch_object(obj=my_tensor, name="layer1_weight")
+memwatch.watch_object(obj=my_list, name="config_list")
+
+# Optional: watch memory buffers directly for low-level mutation
 memwatch.watch(buffer=my_tensor.data_ptr(), size=my_tensor.nbytes, name="layer1_weight")
 
-# Optional: watch Python object attributes
-memwatch.watch_object(obj=my_object, name="config")
-
 # Unwatch
-memwatch.unwatch(buffer=my_tensor.data_ptr())
+memwatch.unwatch_object(obj=my_list)
 ```
 
 **Key Considerations:**
 
-* Python layer is thin: no deep polling, no full snapshots.
-* Pure Python objects get optional fingerprint diff (id, type, hash).
-* Python sees **notifications only when a change occurs**.
+* Python layer is thin: avoids full polling or snapshotting.
+* Optional fingerprint diff for immutable or small objects.
+* Notifications only when a change occurs.
 
 ---
 
@@ -58,7 +59,7 @@ memwatch.unwatch(buffer=my_tensor.data_ptr())
 
 **Responsibilities:**
 
-* Register memory regions and map them to Python-visible names.
+* Register memory regions for hardware-assisted tracking.
 * Protect memory using OS-level page protection:
 
   * Linux/macOS: `mprotect()`
@@ -67,9 +68,10 @@ memwatch.unwatch(buffer=my_tensor.data_ptr())
 
   * Linux/macOS: `SIGSEGV`
   * Windows: Structured Exception Handling (SEH)
-* Identify the exact memory address being written.
-* Capture old value, optionally sample new value, log it.
-* Temporarily lift protection to allow the write, then re-arm protection.
+* Identify exact memory address being written.
+* Capture old/new value samples.
+* Temporarily lift protection to allow write, then re-arm.
+* Notify Python layer with associated object/tag info.
 
 **C++ Core Flow:**
 
@@ -85,7 +87,7 @@ memwatch.unwatch(buffer=my_tensor.data_ptr())
    * Capture old value / optionally sample new value
    * Temporarily allow write
    * Re-arm protection
-   * Notify Python via callback or queue
+   * Notify Python via callback
 
 **Pybind11 Example:**
 
@@ -96,6 +98,8 @@ namespace py = pybind11;
 PYBIND11_MODULE(memwatch, m) {
     m.def("watch", &watch);
     m.def("unwatch", &unwatch);
+    m.def("watch_object", &watch_object);
+    m.def("unwatch_object", &unwatch_object);
 }
 ```
 
@@ -106,7 +110,7 @@ PYBIND11_MODULE(memwatch, m) {
 **Data Flow:**
 
 ```
-Python Code -> memwatch.watch() -> C++ memory registration
+Python Code -> memwatch.watch_object() -> C++ memory registration
 Python code executes normally
 C++ mprotect trap -> SIGSEGV -> capture change -> Python callback
 Python receives change info (tag, addr, old_value, new_value, line context)
@@ -114,30 +118,29 @@ Python receives change info (tag, addr, old_value, new_value, line context)
 
 **Performance Optimizations:**
 
-* Only pages of registered memory are protected.
-* Non-watched memory runs at full speed.
-* Use optional lightweight fingerprint diff for Python-only objects to avoid trapping every minor write.
-* Buffer sampling optional and configurable.
-* Page alignment ensures minimal false positives.
+* Only watched objects/buffers use page protection.
+* Non-watched objects run at full speed.
+* Fingerprint diff for Python-only objects to avoid unnecessary traps.
+* Page alignment reduces false positives.
 
 **Safety Considerations:**
 
-* Signal handler must avoid unsafe operations (no malloc, no Python API calls in handler).
+* Signal handler must avoid unsafe operations (no malloc, no Python API calls).
 * Re-arm protection carefully to avoid deadlocks.
-* Limit number of watched pages to avoid excessive OS overhead.
+* Limit number of watched pages for efficiency.
 
 ---
 
 ### 4. Feature Priorities (Hackathon Mode)
 
-| Priority | Feature                                           | Notes                                         |
-| -------- | ------------------------------------------------- | --------------------------------------------- |
-| 1        | Watch explicit buffers (tensor, bytearray, numpy) | Minimal overhead, hardware-assisted detection |
-| 2        | Optional Python variable diff                     | Covers Python-only objects cheaply            |
-| 3        | Capture old/new values                            | Logs exact change for debugging & reporting   |
-| 4        | Mapping memory -> Python tag                      | Helps you know what changed and where         |
-| 5        | Safe write continuation                           | Program never crashes, CPU does the work      |
-| 6        | Optional logging to file or dashboard             | For real-time visibility                      |
+| Priority | Feature                                           | Notes                                                   |
+| -------- | ------------------------------------------------- | ------------------------------------------------------- |
+| 1        | Watch any Python object/variable                  | Full coverage for tensors, lists, dicts, custom objects |
+| 2        | Watch explicit buffers (tensor, bytearray, numpy) | Minimal overhead, hardware-assisted detection           |
+| 3        | Capture old/new values                            | Logs exact change for debugging & reporting             |
+| 4        | Mapping memory/object -> Python tag               | Helps you know what changed and where                   |
+| 5        | Safe write continuation                           | Program never crashes, CPU does the work                |
+| 6        | Optional logging to file or dashboard             | For real-time visibility                                |
 
 ---
 
@@ -147,15 +150,15 @@ For every change, the system should report something like:
 
 ```
 [MEMWATCH] Tag: layer1_weight
+Object: my_tensor
 Address: 0x7fabc1234000
 Old Value (sample): b'...'
 New Value (sample): b'...'
-Python Variable: my_tensor
 Line: /workspaces/WaterCodeFlow/train.py:52
 ```
 
-* Optional aggregation per variable/tag.
-* Optional history of multiple changes per run.
+* Aggregation per object/tag optional
+* Optional history tracking
 
 ---
 
@@ -164,14 +167,14 @@ Line: /workspaces/WaterCodeFlow/train.py:52
 ### Phase 1 — PoC (Day 1)
 
 * Minimal C++ extension
-* Watch one buffer, trap write, print fault address
-* Python callback prints "change detected"
+* Watch one buffer or Python object
+* Trap write, print fault address or object tag
 
 ### Phase 2 — Python Integration (Day 2)
 
-* Map memory to tag/variable
+* Map memory/objects to tag/variable
 * Log old/new value samples
-* Support multiple watched buffers
+* Support multiple watched objects
 
 ### Phase 3 — Stability & Usability (Day 3)
 
@@ -184,14 +187,20 @@ Line: /workspaces/WaterCodeFlow/train.py:52
 
 * Dashboard / print per-line changes
 * Only trace code in `/workspaces/WaterCodeFlow` path
-* Optionally highlight suspicious mutations
+* Highlight suspicious mutations
 
 ---
 
-## Notes(Don't know why i need notes for myself but still if judges, you are seeing this dont think about me as if i am a weirdo. I forget things quicly)
+## Notes
 
-* This is **low-level, high-leverage**: minimal overhead, maximum insight.
-* Focus only on your target memory regions.
-* Keep Python layer thin, let CPU do the heavy lifting.
-* Works perfectly with tensors, numpy arrays, bytearrays, and custom buffers.
-* Can evolve to full causal debugger over time.
+* Low-level, high-leverage: minimal overhead, maximum insight
+* Focus only on watched objects/buffers
+* Python layer thin, CPU does heavy lifting
+* Works for **all Python objects** and memory-backed buffers
+* Can evolve to full causal debugger over time
+
+---
+
+**Hackathon Mantra:**
+
+> One line, one object, one trace. CPU does the heavy lifting. Python sees only what matters. Stay calm, build precise, and win 😎.
