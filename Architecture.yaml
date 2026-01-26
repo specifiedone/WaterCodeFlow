@@ -2,7 +2,7 @@
 # Deterministic Execution Flow Recorder & Time-Travel Debugger
 
 project:
-  name: WaterCodeFlow
+  name: WaterCodeFlow 
   version: 0.1.0
   description: Deterministic execution flow recorder with tensor mutation tracking
   author: Your Team Name
