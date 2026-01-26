@@ -1,0 +1,471 @@
+# 🌊 WaterCodeFlow Configuration
+# Deterministic Execution Flow Recorder & Time-Travel Debugger
+
+project:
+  name: WaterCodeFlow
+  version: 0.1.0
+  description: Deterministic execution flow recorder with tensor mutation tracking
+  author: Your Team Name
+  license: MIT
+  repository: https://github.com/yourusername/watercodeflow
+  homepage: https://watercodeflow.dev
+
+# ═══════════════════════════════════════════════════════════
+# EXECUTION MODES
+# ═══════════════════════════════════════════════════════════
+
+modes:
+  # Lightweight production monitoring
+  lite:
+    enabled: true
+    capture_level: hash_only
+    overhead_target: 5%
+    features:
+      - variable_fingerprinting
+      - function_tracing
+      - exception_tracking
+    storage:
+      compression: zstd
+      retention_hours: 24
+  
+  # Balanced debugging mode
+  balanced:
+    enabled: true
+    capture_level: partial_diffs
+    overhead_target: 30%
+    features:
+      - variable_fingerprinting
+      - partial_diffs
+      - function_tracing
+      - tensor_fingerprinting
+      - exception_tracking
+      - call_stack
+    storage:
+      compression: lz4
+      retention_hours: 168  # 1 week
+  
+  # Deep research mode
+  deep:
+    enabled: true
+    capture_level: full_diffs
+    overhead_target: 100%
+    features:
+      - full_variable_capture
+      - full_tensor_diffs
+      - io_tracking
+      - filesystem_tracking
+      - database_tracking
+      - network_tracking
+      - call_stack
+      - memory_profiling
+    storage:
+      compression: zstd
+      retention_hours: 720  # 30 days
+
+# ═══════════════════════════════════════════════════════════
+# INSTRUMENTATION
+# ═══════════════════════════════════════════════════════════
+
+instrumentation:
+  python:
+    # Tracing mechanism
+    trace_mechanism: sys.settrace  # Options: sys.settrace, ast_rewrite, both
+    
+    # What to capture
+    capture:
+      line_execution: true
+      variable_assignments: true
+      function_calls: true
+      function_returns: true
+      exceptions: true
+      branches: true
+      loops: true
+      comprehensions: true
+    
+    # Filtering
+    filters:
+      # Include patterns (glob)
+      include_files:
+        - "src/**/*.py"
+        - "models/**/*.py"
+        - "pipelines/**/*.py"
+      
+      # Exclude patterns
+      exclude_files:
+        - "**/test_*.py"
+        - "**/conftest.py"
+        - "**/__pycache__/**"
+        - "**/site-packages/**"
+      
+      # Module filters
+      exclude_modules:
+        - logging
+        - warnings
+        - pytest
+        - unittest
+      
+      # Function filters
+      exclude_functions:
+        - __repr__
+        - __str__
+        - __hash__
+    
+    # Performance
+    sampling:
+      enabled: false
+      rate: 0.1  # Sample 10% of events
+    
+    batching:
+      enabled: true
+      batch_size: 1000
+      flush_interval_ms: 100
+
+  # Tensor framework hooks
+  tensors:
+    pytorch:
+      enabled: true
+      hooks:
+        - forward_hook
+        - backward_hook
+        - parameter_update
+        - gradient_computation
+      
+      # Mutation detection
+      detect_inplace_ops: true
+      track_autograd: true
+      
+      # Fingerprinting strategy
+      fingerprint:
+        method: rolling_hash  # Options: rolling_hash, sampling, full_hash
+        hash_algorithm: xxhash
+        sample_rate: 0.01  # For large tensors
+    
+    numpy:
+      enabled: true
+      hooks:
+        - array_creation
+        - array_mutation
+      detect_inplace_ops: true
+      fingerprint:
+        method: rolling_hash
+        hash_algorithm: xxhash
+    
+    tensorflow:
+      enabled: false  # Not yet implemented
+      hooks: []
+
+# ═══════════════════════════════════════════════════════════
+# STATE TRACKING
+# ═══════════════════════════════════════════════════════════
+
+state_tracking:
+  # Variable tracking
+  variables:
+    # Size thresholds (bytes)
+    small_object_threshold: 1024      # 1 KB - store full value
+    medium_object_threshold: 102400   # 100 KB - store diff
+    large_object_threshold: 10485760  # 10 MB - fingerprint only
+    
+    # Types to track
+    track_types:
+      - int
+      - float
+      - str
+      - list
+      - dict
+      - tuple
+      - set
+      - numpy.ndarray
+      - torch.Tensor
+      - pandas.DataFrame
+      - custom_objects
+    
+    # Deep tracking
+    track_object_attributes: true
+    max_depth: 5
+  
+  # Tensor tracking
+  tensors:
+    # Size-based strategy
+    strategies:
+      small:  # < 100 KB
+        action: full_copy
+        compression: none
+      
+      medium:  # 100 KB - 10 MB
+        action: block_diff
+        block_size: 4096
+        compression: lz4
+      
+      large:  # > 10 MB
+        action: fingerprint_only
+        store_metadata: true
+    
+    # Metadata always captured
+    metadata:
+      - shape
+      - dtype
+      - device
+      - stride
+      - storage_id
+      - requires_grad
+      - is_leaf
+    
+    # Fingerprinting
+    fingerprint:
+      algorithm: xxhash64
+      sampling:
+        enabled: true
+        strategy: uniform  # Options: uniform, adaptive, corners
+        sample_points: 1000
+  
+  # IO Tracking (optional)
+  io_tracking:
+    enabled: false
+    
+    filesystem:
+      track_reads: true
+      track_writes: true
+      track_deletes: true
+      capture_content: false  # Just log paths
+    
+    database:
+      track_queries: true
+      track_transactions: true
+      capture_data: false
+    
+    network:
+      track_requests: false
+      track_responses: false
+
+# ═══════════════════════════════════════════════════════════
+# DELTA ENGINE
+# ═══════════════════════════════════════════════════════════
+
+delta_engine:
+  # Diff algorithms
+  algorithms:
+    primitive: myers_diff
+    dict: recursive_diff
+    list: sequence_matcher
+    tensor: block_diff
+    string: difflib
+  
+  # Optimization
+  parallel: true
+  num_workers: 4
+  
+  # Quality vs Speed
+  similarity_threshold: 0.8  # Consider objects "similar" if > 80% same
+  
+  # Block diff settings
+  block_diff:
+    block_size: 4096
+    hash_blocks: true
+    skip_identical_blocks: true
+
+# ═══════════════════════════════════════════════════════════
+# STORAGE
+# ═══════════════════════════════════════════════════════════
+
+storage:
+  # Backend selection
+  backend: lmdb  # Options: lmdb, rocksdb, sqlite
+  
+  # Storage location
+  path: ~/.watercodeflow/timelines
+  
+  # Database settings
+  lmdb:
+    map_size: 10737418240  # 10 GB
+    writemap: true
+    sync: false  # Async for performance
+    
+  rocksdb:
+    block_cache_size: 1073741824  # 1 GB
+    compression: snappy
+  
+  # Indexing
+  indexes:
+    - timestamp
+    - thread_id
+    - function_name
+    - variable_name
+    - event_type
+  
+  # Chunking
+  chunk_duration_seconds: 60
+  chunk_size_mb: 100
+  
+  # Compression
+  compression:
+    algorithm: zstd  # Options: zstd, lz4, snappy, none
+    level: 3  # 1-22 for zstd
+  
+  # Retention
+  retention:
+    auto_cleanup: true
+    max_timeline_age_hours: 720  # 30 days
+    max_storage_gb: 50
+
+# ═══════════════════════════════════════════════════════════
+# REPLAY ENGINE
+# ═══════════════════════════════════════════════════════════
+
+replay:
+  # Replay modes
+  modes:
+    forward: true
+    reverse: true
+    slice: true
+    what_if: true
+  
+  # Performance
+  lazy_loading: true
+  cache_size_mb: 512
+  
+  # Determinism
+  capture_random_state: true
+  capture_env_vars: true
+  capture_system_time: true
+  
+  # Verification
+  verify_checksums: true
+  detect_divergence: true
+
+# ═══════════════════════════════════════════════════════════
+# VISUALIZATION & API
+# ═══════════════════════════════════════════════════════════
+
+visualization:
+  # Web UI
+  ui:
+    enabled: true
+    host: localhost
+    port: 8080
+    auto_open_browser: true
+  
+  # Timeline view
+  timeline:
+    default_view: combined  # Options: combined, split, focused
+    show_threads: true
+    show_call_stack: true
+    color_scheme: dark  # Options: dark, light, auto
+  
+  # Tensor visualization
+  tensor_view:
+    default_colormap: viridis
+    diff_colormap: RdBu
+    max_render_size: 1000000  # 1M elements
+    downsample_large: true
+  
+  # Graph visualization
+  causal_graph:
+    layout: hierarchical  # Options: hierarchical, force, circular
+    max_nodes: 500
+    show_timestamps: true
+
+api:
+  # Python API settings
+  auto_commit: true
+  lazy_evaluation: true
+  
+  # Export formats
+  export:
+    formats:
+      - json
+      - pickle
+      - hdf5
+      - parquet
+    include_metadata: true
+
+# ═══════════════════════════════════════════════════════════
+# PERFORMANCE & OPTIMIZATION
+# ═══════════════════════════════════════════════════════════
+
+performance:
+  # Threading
+  async_capture: true
+  worker_threads: 4
+  
+  # Memory management
+  max_memory_mb: 4096
+  gc_interval_seconds: 60
+  
+  # Profiling
+  profile_overhead: false
+  log_performance: true
+
+# ═══════════════════════════════════════════════════════════
+# LOGGING & DEBUGGING
+# ═══════════════════════════════════════════════════════════
+
+logging:
+  level: INFO  # DEBUG, INFO, WARNING, ERROR
+  format: "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+  
+  handlers:
+    console:
+      enabled: true
+      level: INFO
+    
+    file:
+      enabled: true
+      level: DEBUG
+      path: ~/.watercodeflow/logs/flow.log
+      max_bytes: 10485760  # 10 MB
+      backup_count: 5
+  
+  # What to log
+  log_events:
+    - session_start
+    - session_end
+    - capture_start
+    - capture_end
+    - replay_start
+    - replay_end
+    - errors
+    - warnings
+
+# ═══════════════════════════════════════════════════════════
+# EXPERIMENTAL FEATURES
+# ═══════════════════════════════════════════════════════════
+
+experimental:
+  # Distributed tracing
+  distributed:
+    enabled: false
+    coordinator_url: null
+  
+  # Cloud storage
+  cloud_storage:
+    enabled: false
+    provider: null  # s3, gcs, azure
+    bucket: null
+  
+  # Multi-language support
+  languages:
+    javascript: false
+    rust: false
+    cpp: false
+
+# ═══════════════════════════════════════════════════════════
+# PRESETS (Quick configurations)
+# ═══════════════════════════════════════════════════════════
+
+presets:
+  development:
+    mode: balanced
+    storage.retention.max_timeline_age_hours: 168
+    visualization.ui.auto_open_browser: true
+  
+  production:
+    mode: lite
+    storage.retention.max_timeline_age_hours: 24
+    instrumentation.python.sampling.enabled: true
+  
+  research:
+    mode: deep
+    storage.retention.max_timeline_age_hours: 720
+    state_tracking.io_tracking.enabled: true
+    performance.max_memory_mb: 8192
