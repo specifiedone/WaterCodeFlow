@@ -1,100 +1,90 @@
 graph TB
-    subgraph User["👤 User Space"]
-        UP[User Program]
+    subgraph Input["Program Execution"]
+        CODE[Python Source Code]
     end
     
-    subgraph Instrumentation["🔍 Instrumentation Layer"]
-        TRACE[sys.settrace Hook]
-        AST[AST Rewriter]
-        TORCH[Torch/NumPy Hooks]
-        TRACE --> ES
-        AST --> ES
-        TORCH --> ES
+    subgraph Capture["Layer 1: Event Capture"]
+        TRACER[sys.settrace Handler]
+        TENSOR_HOOK[Tensor Operation Hook]
+        
+        CODE --> TRACER
+        CODE --> TENSOR_HOOK
+        
+        TRACER --> |line, call, return, exception| EVENT_BUILDER
+        TENSOR_HOOK --> |tensor ops, mutations| EVENT_BUILDER
+        
+        EVENT_BUILDER[Event Builder<br/>Creates structured events]
     end
     
-    subgraph EventStream["📡 Event Stream"]
-        ES[Binary Event Protocol]
-        BATCH[Batching & Compression]
-        ES --> BATCH
+    subgraph Stream["Layer 2: Event Stream"]
+        EVENT_BUILDER --> QUEUE[In-Memory Queue<br/>FIFO buffer]
+        QUEUE --> SERIALIZER[Binary Serializer<br/>msgpack/protobuf]
     end
     
-    subgraph StateTracker["🧠 State Tracker"]
-        VT[Variable Tracker]
-        TT[Tensor Tracker<br/>Fingerprinting & Diffs]
-        IOT[IO Tracker<br/>Files/DB]
-        VT --> DE
-        TT --> DE
-        IOT --> DE
+    subgraph Analysis["Layer 3: State Analysis"]
+        SERIALIZER --> DISPATCHER[Event Dispatcher]
+        
+        DISPATCHER --> VAR_TRACKER[Variable State Tracker<br/>Maintains current values]
+        DISPATCHER --> TENSOR_TRACKER[Tensor State Tracker<br/>Fingerprints + metadata]
+        
+        VAR_TRACKER --> |current state| DIFF_ENGINE
+        TENSOR_TRACKER --> |current state| DIFF_ENGINE
+        
+        DIFF_ENGINE[Delta Calculator<br/>Computes state changes]
+        
+        DIFF_ENGINE --> |primitives| PRIM_DIFF[Primitive Differ]
+        DIFF_ENGINE --> |collections| STRUCT_DIFF[Structural Differ]
+        DIFF_ENGINE --> |tensors| TENSOR_DIFF[Tensor Block Differ]
     end
     
-    subgraph DeltaEngine["⚡ Delta Engine"]
-        DE[Diff Calculator]
-        PRIM[Primitive Diff]
-        DICT[Dict Diff]
-        TENS[Tensor Block Diff]
-        STRUCT[Structural Diff]
-        DE --> PRIM
-        DE --> DICT
-        DE --> TENS
-        DE --> STRUCT
+    subgraph Storage["Layer 4: Persistent Storage"]
+        PRIM_DIFF --> WRITER
+        STRUCT_DIFF --> WRITER
+        TENSOR_DIFF --> WRITER
+        
+        WRITER[Storage Writer<br/>Batched writes] --> DB[(Timeline Database<br/>LMDB)]
+        
+        DB --> IDX_TIME[Timestamp Index]
+        DB --> IDX_VAR[Variable Index]
+        DB --> IDX_FRAME[Frame Index]
     end
     
-    subgraph Storage["💾 Persistent Timeline Store"]
-        LMDB[(LMDB/RocksDB)]
-        INDEX[Timestamp Index]
-        CHUNK[Chunked Timeline]
-        LMDB --> INDEX
-        LMDB --> CHUNK
+    subgraph Query["Layer 5: Timeline Query"]
+        DB --> READER[Timeline Reader]
+        
+        READER --> LOOKUP[Point Lookup<br/>Get state at time T]
+        READER --> RANGE[Range Query<br/>Get states T1 to T2]
+        READER --> SEARCH[Search Query<br/>Find when X changed]
     end
     
-    subgraph Replay["⏯️ Replay Engine"]
-        FWD[▶️ Forward Replay]
-        REV[⏪ Reverse Replay]
-        SLICE[🔍 Slice Replay]
-        WHAT[🧪 What-If Replay]
+    subgraph Replay["Layer 6: State Reconstruction"]
+        LOOKUP --> RECONSTRUCTOR[State Reconstructor]
+        RANGE --> RECONSTRUCTOR
+        
+        RECONSTRUCTOR --> FWD[Forward Builder<br/>Apply deltas forward]
+        RECONSTRUCTOR --> REV[Reverse Builder<br/>Invert deltas backward]
+        
+        FWD --> RESULT[Reconstructed State]
+        REV --> RESULT
     end
     
-    subgraph Visualizer["🎨 Visualizer & API"]
-        UI[Timeline Scrubber]
-        VARVIEW[Variable Evolution]
-        HEATMAP[Tensor Heat Diff]
-        CAUSAL[Causal Chain View]
-        API[Python API]
+    subgraph Output["API Interface"]
+        RESULT --> API[Python API<br/>flow.goto, flow.inspect<br/>flow.diff, flow.replay]
     end
     
-    UP --> TRACE
-    UP --> AST
-    UP --> TORCH
+    style Input fill:#e3f2fd
+    style Capture fill:#fff3e0
+    style Stream fill:#f3e5f5
+    style Analysis fill:#e8f5e9
+    style Storage fill:#fce4ec
+    style Query fill:#e0f2f1
+    style Replay fill:#fff9c4
+    style Output fill:#ede7f6
     
-    BATCH --> VT
-    BATCH --> TT
-    BATCH --> IOT
+    classDef processNode fill:#90caf9,stroke:#1976d2,stroke-width:2px
+    classDef dataNode fill:#a5d6a7,stroke:#388e3c,stroke-width:2px
+    classDef storageNode fill:#ce93d8,stroke:#7b1fa2,stroke-width:2px
     
-    PRIM --> LMDB
-    DICT --> LMDB
-    TENS --> LMDB
-    STRUCT --> LMDB
-    
-    LMDB --> FWD
-    LMDB --> REV
-    LMDB --> SLICE
-    LMDB --> WHAT
-    
-    FWD --> UI
-    REV --> VARVIEW
-    SLICE --> HEATMAP
-    WHAT --> CAUSAL
-    
-    UI --> API
-    VARVIEW --> API
-    HEATMAP --> API
-    CAUSAL --> API
-    
-    style User fill:#e1f5ff
-    style Instrumentation fill:#fff4e1
-    style EventStream fill:#f0e1ff
-    style StateTracker fill:#e1ffe1
-    style DeltaEngine fill:#ffe1e1
-    style Storage fill:#f5f5f5
-    style Replay fill:#e1f0ff
-    style Visualizer fill:#ffe1f5
+    class TRACER,TENSOR_HOOK,EVENT_BUILDER,DIFF_ENGINE processNode
+    class QUEUE,DB dataNode
+    class WRITER,READER storageNode
