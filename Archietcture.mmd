@@ -1,0 +1,100 @@
+graph TB
+    subgraph User["👤 User Space"]
+        UP[User Program]
+    end
+    
+    subgraph Instrumentation["🔍 Instrumentation Layer"]
+        TRACE[sys.settrace Hook]
+        AST[AST Rewriter]
+        TORCH[Torch/NumPy Hooks]
+        TRACE --> ES
+        AST --> ES
+        TORCH --> ES
+    end
+    
+    subgraph EventStream["📡 Event Stream"]
+        ES[Binary Event Protocol]
+        BATCH[Batching & Compression]
+        ES --> BATCH
+    end
+    
+    subgraph StateTracker["🧠 State Tracker"]
+        VT[Variable Tracker]
+        TT[Tensor Tracker<br/>Fingerprinting & Diffs]
+        IOT[IO Tracker<br/>Files/DB]
+        VT --> DE
+        TT --> DE
+        IOT --> DE
+    end
+    
+    subgraph DeltaEngine["⚡ Delta Engine"]
+        DE[Diff Calculator]
+        PRIM[Primitive Diff]
+        DICT[Dict Diff]
+        TENS[Tensor Block Diff]
+        STRUCT[Structural Diff]
+        DE --> PRIM
+        DE --> DICT
+        DE --> TENS
+        DE --> STRUCT
+    end
+    
+    subgraph Storage["💾 Persistent Timeline Store"]
+        LMDB[(LMDB/RocksDB)]
+        INDEX[Timestamp Index]
+        CHUNK[Chunked Timeline]
+        LMDB --> INDEX
+        LMDB --> CHUNK
+    end
+    
+    subgraph Replay["⏯️ Replay Engine"]
+        FWD[▶️ Forward Replay]
+        REV[⏪ Reverse Replay]
+        SLICE[🔍 Slice Replay]
+        WHAT[🧪 What-If Replay]
+    end
+    
+    subgraph Visualizer["🎨 Visualizer & API"]
+        UI[Timeline Scrubber]
+        VARVIEW[Variable Evolution]
+        HEATMAP[Tensor Heat Diff]
+        CAUSAL[Causal Chain View]
+        API[Python API]
+    end
+    
+    UP --> TRACE
+    UP --> AST
+    UP --> TORCH
+    
+    BATCH --> VT
+    BATCH --> TT
+    BATCH --> IOT
+    
+    PRIM --> LMDB
+    DICT --> LMDB
+    TENS --> LMDB
+    STRUCT --> LMDB
+    
+    LMDB --> FWD
+    LMDB --> REV
+    LMDB --> SLICE
+    LMDB --> WHAT
+    
+    FWD --> UI
+    REV --> VARVIEW
+    SLICE --> HEATMAP
+    WHAT --> CAUSAL
+    
+    UI --> API
+    VARVIEW --> API
+    HEATMAP --> API
+    CAUSAL --> API
+    
+    style User fill:#e1f5ff
+    style Instrumentation fill:#fff4e1
+    style EventStream fill:#f0e1ff
+    style StateTracker fill:#e1ffe1
+    style DeltaEngine fill:#ffe1e1
+    style Storage fill:#f5f5f5
+    style Replay fill:#e1f0ff
+    style Visualizer fill:#ffe1f5
