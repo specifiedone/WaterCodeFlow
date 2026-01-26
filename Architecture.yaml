@@ -5,9 +5,9 @@ project:
   name: WaterCodeFlow 
   version: 0.1.0
   description: Deterministic execution flow recorder with tensor mutation tracking
-  author: Your Team Name
+  author: Devils of the night
   license: MIT
-  repository: https://github.com/yourusername/watercodeflow
+  repository: https://github.com/specifiedone/watercodeflow
   homepage: https://watercodeflow.dev
 
 # ═══════════════════════════════════════════════════════════
