@@ -7,6 +7,7 @@ Builds the native C extension module for memory change watching.
 
 from setuptools import setup, Extension
 import sys
+import os
 
 # Native extension module
 memwatch_extension = Extension(
@@ -38,11 +39,20 @@ elif sys.platform == 'win32':
     memwatch_extension.define_macros = [('NO_MPROTECT', '1')]
     memwatch_extension.libraries = []
 
+import os
+
+# Read long description safely
+long_desc = ""
+arch_file = 'python/memwatch/architecture.md'
+if os.path.exists(arch_file):
+    with open(arch_file, 'r') as f:
+        long_desc = f.read()
+
 setup(
     name='memwatch',
     version='0.1.0',
     description='Language-agnostic memory change watcher',
-    long_description=open('python/memwatch/architecture.md').read(),
+    long_description=long_desc,
     long_description_content_type='text/markdown',
     author='memwatch contributors',
     url='https://github.com/yourusername/memwatch',

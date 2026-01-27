@@ -14,6 +14,7 @@
 #include <sys/mman.h>
 #include <pthread.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <stdatomic.h>
 #include <string.h>
 #include <time.h>
@@ -116,6 +117,9 @@ static void page_table_remove_region(uintptr_t page_start, TrackedRegion *region
 
 /* Initialize memwatch core */
 static PyObject *mw_init(PyObject *self, PyObject *args) {
+    (void)self;  /* Unused in this function */
+    (void)args;  /* Unused in this function */
+    
     if (g_state.ring != NULL) {
         Py_RETURN_NONE;  /* already initialized */
     }
@@ -178,6 +182,17 @@ static PyObject *mw_init(PyObject *self, PyObject *args) {
     atomic_store(&g_state.worker_running, true);
     atomic_store(&g_state.shutdown_requested, false);
     if (pthread_create(&g_state.worker_thread, NULL, worker_thread_func, NULL) != 0) {
+        /* Cleanup on failure */
+        if (g_state.protection_available) {
+            sigaction(SIGSEGV, &g_state.old_segv_action, NULL);
+        }
+        free(g_state.ring);
+        free(g_state.page_table);
+        free(g_state.regions);
+        pthread_mutex_destroy(&g_state.page_table_mutex);
+        pthread_mutex_destroy(&g_state.regions_mutex);
+        pthread_mutex_destroy(&g_state.callback_mutex);
+        memset(&g_state, 0, sizeof(g_state));
         PyErr_SetString(PyExc_RuntimeError, "Failed to start worker thread");
         return NULL;
     }
@@ -187,6 +202,9 @@ static PyObject *mw_init(PyObject *self, PyObject *args) {
 
 /* Shutdown memwatch core */
 static PyObject *mw_shutdown(PyObject *self, PyObject *args) {
+    (void)self;  /* Unused in this function */
+    (void)args;  /* Unused in this function */
+    
     if (!g_state.ring) {
         Py_RETURN_NONE;
     }
@@ -224,6 +242,8 @@ static PyObject *mw_shutdown(PyObject *self, PyObject *args) {
 
 /* Track a memory region */
 static PyObject *mw_track(PyObject *self, PyObject *args) {
+    (void)self;  /* Unused in this function */
+    
     uint64_t addr;
     size_t size;
     uint32_t adapter_id, metadata_ref;
@@ -294,7 +314,10 @@ static PyObject *mw_track(PyObject *self, PyObject *args) {
         /* Set page protection if available */
         if (g_state.protection_available) {
             Py_BEGIN_ALLOW_THREADS
-            mprotect((void*)page, PAGE_SIZE, PROT_READ);
+            if (mprotect((void*)page, PAGE_SIZE, PROT_READ) != 0) {
+                /* Protection failed - log but continue */
+                /* In production, might want to track this */
+            }
             Py_END_ALLOW_THREADS
         }
     }
@@ -304,6 +327,8 @@ static PyObject *mw_track(PyObject *self, PyObject *args) {
 
 /* Untrack a memory region */
 static PyObject *mw_untrack(PyObject *self, PyObject *args) {
+    (void)self;  /* Unused in this function */
+    
     uint32_t region_id;
     
     if (!PyArg_ParseTuple(args, "I", &region_id)) {
@@ -340,6 +365,8 @@ static PyObject *mw_untrack(PyObject *self, PyObject *args) {
 
 /* Set Python callback for events */
 static PyObject *mw_set_callback(PyObject *self, PyObject *args) {
+    (void)self;  /* Unused in this function */
+    
     PyObject *callback;
     
     if (!PyArg_ParseTuple(args, "O", &callback)) {
@@ -369,6 +396,9 @@ static PyObject *mw_set_callback(PyObject *self, PyObject *args) {
 
 /* Get statistics */
 static PyObject *mw_get_stats(PyObject *self, PyObject *args) {
+    (void)self;  /* Unused in this function */
+    (void)args;  /* Unused in this function */
+    
     PyObject *stats = PyDict_New();
     
     PyDict_SetItemString(stats, "tracked_regions", 
@@ -393,6 +423,8 @@ static PyObject *mw_get_stats(PyObject *self, PyObject *args) {
 
 /* Register in-process resolver */
 static PyObject *mw_register_resolver(PyObject *self, PyObject *args) {
+    (void)self;  /* Unused in this function */
+    
     uint32_t adapter_id;
     unsigned long long fnptr;
     
@@ -412,6 +444,8 @@ static PyObject *mw_register_resolver(PyObject *self, PyObject *args) {
 
 /* Signal handler - ASYNC-SIGNAL-SAFE ONLY */
 static void signal_handler(int sig, siginfo_t *si, void *unused) {
+    (void)unused;  /* Context parameter - unused */
+    
     if (sig != SIGSEGV || !g_state.ring) {
         return;
     }
@@ -433,7 +467,7 @@ static void signal_handler(int sig, siginfo_t *si, void *unused) {
     /* Write event */
     PageEvent *event = &g_state.ring[head];
     event->page_start = page_start;
-    event->fault_ip = (uintptr_t)__builtin_return_address(0);
+    event->fault_ip = fault_addr;  /* Use actual fault address */
     event->adapter_id = 0;  /* resolved by worker */
     event->timestamp_ns = get_monotonic_ns();
     event->seq = seq;
@@ -447,6 +481,8 @@ static void signal_handler(int sig, siginfo_t *si, void *unused) {
 
 /* Worker thread - drains ring and processes events */
 static void *worker_thread_func(void *arg) {
+    (void)arg;  /* Unused thread argument */
+    
     uint8_t preview_buffer[PREVIEW_SIZE];
     
     while (!atomic_load(&g_state.shutdown_requested)) {
@@ -652,7 +688,11 @@ static struct PyModuleDef memwatch_module = {
     "memwatch",
     "Native memory change watcher core",
     -1,
-    MemwatchMethods
+    MemwatchMethods,
+    NULL,  /* m_slots */
+    NULL,  /* m_traverse */
+    NULL,  /* m_clear */
+    NULL   /* m_free */
 };
 
 PyMODINIT_FUNC PyInit_memwatch(void) {
