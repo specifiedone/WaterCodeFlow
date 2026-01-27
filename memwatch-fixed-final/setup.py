@@ -11,7 +11,7 @@ import os
 
 # Native extension module
 memwatch_extension = Extension(
-    'memwatch',
+    '_memwatch_native',  # Renamed to avoid collision with Python package
     sources=['src/memwatch.c'],
     include_dirs=['/usr/include', '/usr/local/include'],
     libraries=['pthread'],
@@ -83,11 +83,8 @@ setup(
     
     # Metadata
     classifiers=[
-        'Development Status :: 3 - Alpha',
-        'Intended Audience :: Developers',
         'Topic :: Software Development :: Debugging',
         'Topic :: System :: Monitoring',
-        'License :: OSI Approved :: MIT License',
         'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',

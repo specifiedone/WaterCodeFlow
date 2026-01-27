@@ -13,7 +13,7 @@ import time
 import ctypes
 
 try:
-    import memwatch as _native
+    import _memwatch_native as _native
 except ImportError:
     _native = None
 

@@ -13,7 +13,7 @@ import ctypes
 
 # Import native core (will be compiled as extension module)
 try:
-    import memwatch as _native
+    import _memwatch_native as _native
 except ImportError:
     _native = None
 
@@ -182,6 +182,18 @@ class MemoryWatcher:
     def set_callback(self, fn: Optional[Callable[[ChangeEvent], None]]) -> None:
         """Set callback for change events"""
         self._callback = fn
+        
+        # For PollingAdapter, we need to set the callback on the adapter itself
+        if hasattr(self.adapter, 'set_callback'):
+            # Wrap the callback to enrich events
+            if fn:
+                def wrapped_callback(event_dict):
+                    event = ChangeEvent.from_dict(event_dict) if isinstance(event_dict, dict) else event_dict
+                    event = self._enrich_event(event)
+                    fn(event)
+                self.adapter.set_callback(wrapped_callback)
+            else:
+                self.adapter.set_callback(None)
     
     def check_changes(self) -> List[ChangeEvent]:
         """Synchronously check for changes (polling mode)"""

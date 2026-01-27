@@ -401,22 +401,32 @@ static PyObject *mw_get_stats(PyObject *self, PyObject *args) {
     
     PyObject *stats = PyDict_New();
     
-    PyDict_SetItemString(stats, "tracked_regions", 
-                         PyLong_FromUnsignedLong(atomic_load(&g_state.tracked_region_count)));
-    PyDict_SetItemString(stats, "ring_capacity", 
-                         PyLong_FromUnsignedLong(RING_CAPACITY));
+    PyObject *tracked_obj = PyLong_FromUnsignedLong(atomic_load(&g_state.tracked_region_count));
+    PyDict_SetItemString(stats, "tracked_regions", tracked_obj);
+    Py_DECREF(tracked_obj);
+    
+    PyObject *capacity_obj = PyLong_FromUnsignedLong(RING_CAPACITY);
+    PyDict_SetItemString(stats, "ring_capacity", capacity_obj);
+    Py_DECREF(capacity_obj);
     
     uint32_t head = atomic_load(&g_state.ring_head);
     uint32_t tail = atomic_load(&g_state.ring_tail);
     uint32_t used = (head >= tail) ? (head - tail) : (RING_CAPACITY - tail + head);
-    PyDict_SetItemString(stats, "ring_used", PyLong_FromUnsignedLong(used));
+    PyObject *used_obj = PyLong_FromUnsignedLong(used);
+    PyDict_SetItemString(stats, "ring_used", used_obj);
+    Py_DECREF(used_obj);
     
-    PyDict_SetItemString(stats, "dropped_events", 
-                         PyLong_FromUnsignedLong(atomic_load(&g_state.dropped_events)));
-    PyDict_SetItemString(stats, "native_memory_bytes", 
-                         PyLong_FromSize_t(atomic_load(&g_state.native_memory_bytes)));
-    PyDict_SetItemString(stats, "protection_available", 
-                         PyBool_FromLong(g_state.protection_available));
+    PyObject *dropped_obj = PyLong_FromUnsignedLong(atomic_load(&g_state.dropped_events));
+    PyDict_SetItemString(stats, "dropped_events", dropped_obj);
+    Py_DECREF(dropped_obj);
+    
+    PyObject *mem_obj = PyLong_FromSize_t(atomic_load(&g_state.native_memory_bytes));
+    PyDict_SetItemString(stats, "native_memory_bytes", mem_obj);
+    Py_DECREF(mem_obj);
+    
+    PyObject *prot_obj = PyBool_FromLong(g_state.protection_available);
+    PyDict_SetItemString(stats, "protection_available", prot_obj);
+    Py_DECREF(prot_obj);
     
     return stats;
 }
@@ -518,37 +528,64 @@ static void *worker_thread_func(void *arg) {
                 PyGILState_STATE gstate = PyGILState_Ensure();
                 
                 PyObject *event_dict = PyDict_New();
-                PyDict_SetItemString(event_dict, "seq", PyLong_FromUnsignedLong(event.seq));
-                PyDict_SetItemString(event_dict, "timestamp_ns", PyLong_FromUnsignedLongLong(event.timestamp_ns));
-                PyDict_SetItemString(event_dict, "adapter_id", PyLong_FromUnsignedLong(region->adapter_id));
-                PyDict_SetItemString(event_dict, "region_id", PyLong_FromUnsignedLong(region->region_id));
-                PyDict_SetItemString(event_dict, "how_big", PyLong_FromSize_t(region->size));
+                
+                /* Create and add seq */
+                PyObject *seq_obj = PyLong_FromUnsignedLong(event.seq);
+                PyDict_SetItemString(event_dict, "seq", seq_obj);
+                Py_DECREF(seq_obj);
+                
+                /* Create and add timestamp */
+                PyObject *ts_obj = PyLong_FromUnsignedLongLong(event.timestamp_ns);
+                PyDict_SetItemString(event_dict, "timestamp_ns", ts_obj);
+                Py_DECREF(ts_obj);
+                
+                /* Create and add adapter_id */
+                PyObject *adapter_obj = PyLong_FromUnsignedLong(region->adapter_id);
+                PyDict_SetItemString(event_dict, "adapter_id", adapter_obj);
+                Py_DECREF(adapter_obj);
+                
+                /* Create and add region_id */
+                PyObject *region_obj = PyLong_FromUnsignedLong(region->region_id);
+                PyDict_SetItemString(event_dict, "region_id", region_obj);
+                Py_DECREF(region_obj);
+                
+                /* Create and add how_big */
+                PyObject *size_obj = PyLong_FromSize_t(region->size);
+                PyDict_SetItemString(event_dict, "how_big", size_obj);
+                Py_DECREF(size_obj);
                 
                 /* Add previews */
                 size_t preview_len = (region->size < PREVIEW_SIZE) ? region->size : PREVIEW_SIZE;
                 memcpy(preview_buffer, (void*)region->addr, preview_len);
-                PyDict_SetItemString(event_dict, "new_preview", 
-                                    PyBytes_FromStringAndSize((char*)preview_buffer, preview_len));
+                PyObject *preview_obj = PyBytes_FromStringAndSize((char*)preview_buffer, preview_len);
+                PyDict_SetItemString(event_dict, "new_preview", preview_obj);
+                Py_DECREF(preview_obj);
                 
                 /* For small regions, include full value */
                 if (region->size <= SMALL_COPY_THRESHOLD) {
-                    PyDict_SetItemString(event_dict, "new_value", 
-                                        PyBytes_FromStringAndSize((char*)region->addr, region->size));
+                    PyObject *value_obj = PyBytes_FromStringAndSize((char*)region->addr, region->size);
+                    PyDict_SetItemString(event_dict, "new_value", value_obj);
+                    Py_DECREF(value_obj);
                 } else {
                     /* Large region - would use storage here */
                     char storage_key[256];
                     snprintf(storage_key, sizeof(storage_key), 
                             "memwatch/%u/%u/%u", region->adapter_id, region->region_id, region->epoch);
-                    PyDict_SetItemString(event_dict, "storage_key_new", 
-                                        PyUnicode_FromString(storage_key));
+                    PyObject *storage_obj = PyUnicode_FromString(storage_key);
+                    PyDict_SetItemString(event_dict, "storage_key_new", storage_obj);
+                    Py_DECREF(storage_obj);
                 }
                 
                 /* Add where info */
                 PyObject *where = PyDict_New();
                 char ip_str[32];
                 snprintf(ip_str, sizeof(ip_str), "0x%lx", event.fault_ip);
-                PyDict_SetItemString(where, "fault_ip", PyUnicode_FromString(ip_str));
+                PyObject *ip_obj = PyUnicode_FromString(ip_str);
+                PyDict_SetItemString(where, "fault_ip", ip_obj);
+                Py_DECREF(ip_obj);
+                
                 PyDict_SetItemString(event_dict, "where", where);
+                Py_DECREF(where);  /* Dict took a reference */
                 
                 /* Update region state */
                 region->last_hash = current_hash;
@@ -685,7 +722,7 @@ static PyMethodDef MemwatchMethods[] = {
 
 static struct PyModuleDef memwatch_module = {
     PyModuleDef_HEAD_INIT,
-    "memwatch",
+    "_memwatch_native",  /* Module name changed to avoid collision */
     "Native memory change watcher core",
     -1,
     MemwatchMethods,
@@ -695,6 +732,6 @@ static struct PyModuleDef memwatch_module = {
     NULL   /* m_free */
 };
 
-PyMODINIT_FUNC PyInit_memwatch(void) {
+PyMODINIT_FUNC PyInit__memwatch_native(void) {  /* Function name must match module name */
     return PyModule_Create(&memwatch_module);
 }
