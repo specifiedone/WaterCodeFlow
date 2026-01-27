@@ -290,12 +290,7 @@ Ensure you're modifying existing buffer, not creating new ones.
 
 ---
 
-**Start Now:**
-```bash
-python3 setup.py build_ext --inplace
-PYTHONPATH=.:python python3 examples/test_unified.py
-```
-
+You really went through this big doc. salute🫡, after creating even I didnt take that struggle
 Pick your language above → Follow build steps → Integrate!
 
 Happy hacking! 🚀
