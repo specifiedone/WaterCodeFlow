@@ -257,8 +257,34 @@ if [ "${RESULTS[Python]}" = "✓" ]; then
 fi
 
 # ==========================================
+# Build Universal CLI
+# ==========================================
+echo ""
+echo "================================================"
+echo "Building Universal CLI"
+echo "================================================"
+echo ""
+
+if command -v gcc &> /dev/null; then
+    echo "Building memwatch CLI (works with all 10 languages)..."
+    
+    if gcc -o build/memwatch_cli src/memwatch_cli.c src/memwatch.c \
+        -I./include $(pkg-config --cflags --libs sqlite3) -lpthread \
+        > /tmp/cli_build.log 2>&1; then
+        echo -e "${GREEN}✓${NC} Universal CLI built"
+        echo "  Usage: ./build/memwatch_cli run <executable> --storage tracking.db"
+        echo "  Tracks: Python, C, Java, Go, Rust, C#, JavaScript, TypeScript, SQL"
+    else
+        echo -e "${RED}✗${NC} CLI build failed (check /tmp/cli_build.log)"
+    fi
+else
+    echo -e "${YELLOW}⚠${NC} GCC not found, skipping CLI build"
+fi
+
+# ==========================================
 # Next Steps
 # ==========================================
+echo ""
 echo "================================================"
 echo "Next Steps"
 echo "================================================"
@@ -269,12 +295,13 @@ echo "  - C/C++: Link with src/memwatch.c + include/memwatch_unified.h"
 echo "  - JavaScript: bindings/memwatch.js (npm dependencies installed)"
 echo "  - Java: build/*.class (compiled)"
 echo "  - Go: build/memwatch_go (binary)"
-echo "  - Others: Check build/ directory"
+echo "  - Universal CLI: build/memwatch_cli (tracks ANY language)"
 echo ""
 echo "✓ Examples:"
-echo "  - Python:     PYTHONPATH=.:python python3 examples/test_unified.py"
-echo "  - JavaScript: node examples/test_unified.js"
-echo "  - Java:       java -cp build MemWatch"
-echo "  - C:          gcc -I./include examples/test_unified.c src/memwatch.c -lpthread"
+echo "  - Track Python:     ./build/memwatch_cli run python3 script.py --storage db.sqlite"
+echo "  - Track C/C++:      ./build/memwatch_cli run ./program --storage db.sqlite --threads"
+echo "  - Track Java:       ./build/memwatch_cli run java -jar app.jar --storage db.sqlite"
+echo "  - Track Go:         ./build/memwatch_cli run ./binary --storage db.sqlite"
+echo "  - View data:        ./build/memwatch_cli read db.sqlite --format json"
 echo ""
 echo "Happy coding! 🚀"
