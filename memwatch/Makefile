@@ -28,16 +28,67 @@ all: build
 # MAIN BUILD - Everything you need for the CLI
 # ============================================================================
 
-build: build-cli build-sql-tracker build-python
+build: build-cli build-tracker build-preload build-python
 	@echo ""
 	@echo "✅ BUILD COMPLETE!"
 	@echo ""
-	@echo "Ready to use:"
-	@echo "  ./build/memwatch_cli run <program> [options]"
+	@echo "Available tools:"
+	@echo "  CLI:       ./build/memwatch_cli run <program> --storage <db>"
+	@echo "  Library:   ./build/libmemwatch.so (LD_PRELOAD injection)"
 	@echo ""
-	@echo "To track your first program:"
+	@echo "Quick start:"
 	@echo "  ./build/memwatch_cli run python3 script.py --storage results.db"
-	@echo "  ./build/memwatch_cli run ./program --storage results.db"
+	@echo "  ./build/memwatch_cli read results.db"
+	@echo ""
+	@echo "With LD_PRELOAD:"
+	@echo "  LD_PRELOAD=./build/libmemwatch.so MEMWATCH_DB=data.db ./program"
+	@echo ""
+
+# ============================================================================
+# Build FastStorage C++ Library
+# ============================================================================
+
+build-faststorage: build/lib_faststorage.so
+	@echo "✅ FastStorage library built: ./build/lib_faststorage.so"
+
+build/lib_faststorage.so: ../storage_utility/faststorage_c.cpp
+	@mkdir -p build
+	$(CXX) $(CXXFLAGS) -shared -fPIC -o $@ $< -lm -lpthread
+
+# ============================================================================
+# Build Real Memory Tracker
+# ============================================================================
+
+build-tracker: build/memwatch_tracker.o
+	@echo "✅ Tracker built"
+
+build/memwatch_tracker.o: src/memwatch_tracker.c src/faststorage_bridge.c include/memwatch_tracker.h include/faststorage_bridge.h
+	@mkdir -p build
+	$(CC) $(CFLAGS) -c src/memwatch_tracker.c -o build/memwatch_tracker_obj.o
+	$(CC) $(CFLAGS) -c src/faststorage_bridge.c -o build/faststorage_bridge_obj.o
+	@echo "Objects compiled"
+
+# ============================================================================
+# Build CLI Tool  
+# ============================================================================
+
+build-cli: build-faststorage build/memwatch_cli
+	@echo "✅ CLI tool built: ./build/memwatch_cli"
+
+build/memwatch_cli: src/memwatch_cli_simple.c src/memwatch_tracker.c src/faststorage_bridge.c include/memwatch_tracker.h include/faststorage_bridge.h
+	@mkdir -p build
+	$(CC) $(CFLAGS) -o $@ src/memwatch_cli_simple.c src/memwatch_tracker.c src/faststorage_bridge.c -I./include -lpthread -lsqlite3 -lm -ldl
+
+# ============================================================================
+# Build LD_PRELOAD Library
+# ============================================================================
+
+build-preload: build-faststorage build/libmemwatch.so
+	@echo "✅ Preload library built: ./build/libmemwatch.so"
+
+build/libmemwatch.so: src/memwatch_preload.c src/memwatch_tracker.c src/faststorage_bridge.c include/memwatch_tracker.h include/faststorage_bridge.h
+	@mkdir -p build
+	$(CC) -shared -fPIC $(CFLAGS) -o $@ src/memwatch_preload.c src/memwatch_tracker.c src/faststorage_bridge.c -I./include -lpthread -lsqlite3 -lm -ldl
 	@echo ""
 	@echo "View results:"
 	@echo "  ./build/memwatch_cli read results.db"
@@ -56,32 +107,8 @@ build/libmemwatch_core.so: src/memwatch.c include/memwatch_unified.h
 	@echo "✓ Built: memwatch_core"
 
 # ============================================================================
-# UNIVERSAL CLI - Track ANY language
+# OLD - REMOVED (see build-tracker, build-cli, build-preload above)
 # ============================================================================
-
-build-cli: build-core build/libsql_tracker.so
-	@mkdir -p build
-	@echo "Building optimized CLI (10-20MB overhead)..."
-	@# Compile optimized CLI with minimal memory footprint
-	$(CC) $(CFLAGS) -c src/memwatch_cli_optimized.c -o build/memwatch_cli.o 2>/dev/null || \
-	$(CC) $(CFLAGS) -c src/memwatch_cli_enhanced.c -o build/memwatch_cli.o 2>/dev/null || \
-	$(CC) $(CFLAGS) -c src/memwatch_cli.c -o build/memwatch_cli.o 2>/dev/null || true
-	@# Link CLI with SQLite
-	$(CC) -o build/memwatch_cli src/memwatch_cli_optimized.c src/memwatch.c src/sql_tracker.c $(CFLAGS) $(LDFLAGS) -lsqlite3 2>/dev/null || \
-	$(CC) -o build/memwatch_cli build/memwatch_cli.o build/memwatch.o build/libsql_tracker.so $(LDFLAGS) -lsqlite3 2>/dev/null || \
-	$(CC) -o build/memwatch_cli build/memwatch_cli.o build/memwatch.o $(LDFLAGS) -lsqlite3 2>/dev/null || \
-	echo "⚠ CLI build note: Try 'make build-cli-manual' for detailed feedback"
-	@chmod +x build/memwatch_cli 2>/dev/null
-	@ls -lh build/memwatch_cli 2>/dev/null | awk '{print "✓ Built: memwatch_cli (optimized)"; print "  Overhead: 10-20MB"; print "  Size: " $$5}'
-	$(CC) -o build/memwatch_cli src/memwatch.c src/memwatch_cli.c src/sql_tracker.c $(CFLAGS) $(LDFLAGS) -o build/memwatch_cli || \
-	echo "⚠ CLI build note: Try 'make build-cli-manual' for detailed feedback"
-	@chmod +x build/memwatch_cli 2>/dev/null || true
-	@if [ -f build/memwatch_cli ]; then \
-		echo "✓ Built: memwatch_cli"; \
-		ls -lh build/memwatch_cli | awk '{print "  Size:", $$5}'; \
-	else \
-		echo "⚠ memwatch_cli not found, trying fallback..."; \
-	fi
 
 build-cli-manual:
 	@echo "Building CLI with verbose output..."
