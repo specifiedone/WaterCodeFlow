@@ -8,6 +8,7 @@ use std::ptr;
 use std::sync::Mutex;
 
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct ChangeEventC {
     pub seq: u32,
     pub timestamp_ns: u64,
@@ -42,6 +43,7 @@ extern "C" {
     fn memwatch_init() -> c_int;
     fn memwatch_shutdown();
     fn memwatch_watch(addr: u64, size: usize, name: *const c_char, user_data: *mut c_void) -> u32;
+    fn memwatch_watch_with_max_value_bytes(addr: u64, size: usize, name: *const c_char, user_data: *mut c_void, max_value_bytes: i32) -> u32;
     fn memwatch_unwatch(region_id: u32) -> bool;
     fn memwatch_set_callback(callback: *mut c_void, user_ctx: *mut c_void) -> c_int;
     fn memwatch_check_changes(out_events: *mut ChangeEventC, max_events: c_int) -> c_int;
@@ -113,14 +115,20 @@ impl MemWatch {
         })
     }
     
-    /// Watch a buffer for changes
+    /// Watch a buffer for changes with optional max_value_bytes
     pub fn watch(&self, buffer: &[u8], name: &str) -> Result<u32, String> {
+        self.watch_with_max_value_bytes(buffer, name, 256)
+    }
+    
+    /// Watch a buffer for changes with custom value storage limit
+    /// max_value_bytes: 0 = no values, >0 = limit to N bytes, -1 = full values
+    pub fn watch_with_max_value_bytes(&self, buffer: &[u8], name: &str, max_value_bytes: i32) -> Result<u32, String> {
         let addr = buffer.as_ptr() as u64;
         let size = buffer.len();
         let c_name = CString::new(name).map_err(|e| e.to_string())?;
         
         unsafe {
-            let region_id = memwatch_watch(addr, size, c_name.as_ptr(), ptr::null_mut());
+            let region_id = memwatch_watch_with_max_value_bytes(addr, size, c_name.as_ptr(), ptr::null_mut(), max_value_bytes);
             if region_id > 0 {
                 Ok(region_id)
             } else {
@@ -131,12 +139,18 @@ impl MemWatch {
     
     /// Watch a vector for changes
     pub fn watch_vec<T>(&self, vec: &[T], name: &str) -> Result<u32, String> {
+        self.watch_vec_with_max_value_bytes(vec, name, 256)
+    }
+    
+    /// Watch a vector for changes with custom value storage limit
+    /// max_value_bytes: 0 = no values, >0 = limit to N bytes, -1 = full values
+    pub fn watch_vec_with_max_value_bytes<T>(&self, vec: &[T], name: &str, max_value_bytes: i32) -> Result<u32, String> {
         let addr = vec.as_ptr() as u64;
         let size = vec.len() * std::mem::size_of::<T>();
         let c_name = CString::new(name).map_err(|e| e.to_string())?;
         
         unsafe {
-            let region_id = memwatch_watch(addr, size, c_name.as_ptr(), ptr::null_mut());
+            let region_id = memwatch_watch_with_max_value_bytes(addr, size, c_name.as_ptr(), ptr::null_mut(), max_value_bytes);
             if region_id > 0 {
                 Ok(region_id)
             } else {

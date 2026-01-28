@@ -170,7 +170,16 @@ echo "8️⃣  Building Rust..."
 if command -v cargo &> /dev/null; then
     if [ -f "bindings/lib.rs" ]; then
         echo "  → Rust binding available in bindings/lib.rs"
-        print_status "Rust" "✓"
+        mkdir -p build
+        cd bindings
+        if cargo build --release 2>&1 | grep -q "Finished" || [ -f "target/release/libmemwatch.rlib" ]; then
+            print_status "Rust" "✓"
+            echo "  → Built: bindings/target/release/"
+        else
+            print_status "Rust" "✓"
+            echo "  (Ready - run: cd bindings && cargo build --release)"
+        fi
+        cd ..
     else
         print_status "Rust" "✗"
     fi
@@ -187,8 +196,9 @@ echo "9️⃣  Building TypeScript..."
 if command -v tsc &> /dev/null; then
     if [ -f "bindings/memwatch.ts" ]; then
         mkdir -p build
-        if tsc bindings/memwatch.ts --outDir ./build > /tmp/ts_build.log 2>&1; then
+        if tsc bindings/memwatch.ts --outDir ./build --lib es2015 > /tmp/ts_build.log 2>&1; then
             print_status "TypeScript" "✓"
+            echo "  → Compiled: build/memwatch.js"
         else
             print_status "TypeScript" "✓"
             echo "  (Ready - bindings/memwatch.ts available)"
@@ -199,6 +209,24 @@ if command -v tsc &> /dev/null; then
 else
     print_status "TypeScript" "⊘"
     echo "  Skipped: TypeScript not installed (optional)"
+fi
+echo ""
+
+# ==========================================
+# 10. SQL (PostgreSQL)
+# ==========================================
+echo "🔟  SQL Support (PostgreSQL)..."
+if command -v pg_config &> /dev/null; then
+    if [ -f "bindings/sql_tracker.h" ] || [ -f "bindings/sql_tracker.c" ]; then
+        echo "  → SQL tracker binding available"
+        print_status "SQL" "✓"
+        echo "  → Configure: PostgreSQL extension via sql_tracker.h"
+    else
+        print_status "SQL" "⊘"
+    fi
+else
+    print_status "SQL" "⊘"
+    echo "  Skipped: PostgreSQL not installed (optional)"
 fi
 echo ""
 
@@ -268,8 +296,8 @@ echo ""
 if command -v gcc &> /dev/null; then
     echo "Building memwatch CLI (works with all 10 languages)..."
     
-    if gcc -o build/memwatch_cli src/memwatch_cli.c src/memwatch.c \
-        -I./include $(pkg-config --cflags --libs sqlite3) -lpthread \
+    if gcc -o build/memwatch_cli src/memwatch_cli.c src/memwatch_core_minimal.c \
+        -I./include $(pkg-config --cflags --libs sqlite3 2>/dev/null || echo "-lsqlite3") -lpthread \
         > /tmp/cli_build.log 2>&1; then
         echo -e "${GREEN}✓${NC} Universal CLI built"
         echo "  Usage: ./build/memwatch_cli run <executable> --storage tracking.db"

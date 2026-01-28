@@ -107,14 +107,18 @@ class MemoryWatcher:
             _native.set_callback(self._handle_native_event)
     
     def watch(self, obj: Any, name: Optional[str] = None, 
-              force_store: bool = False) -> int:
+              max_value_bytes: int = 256) -> int:
         """
         Watch an object for changes
         
         Args:
             obj: Object to watch (must support buffer protocol)
             name: Variable name (auto-inferred if None)
-            force_store: Force storage even for small objects
+            max_value_bytes: Max bytes to store per change event
+                - 0: No value storage (only metadata)
+                - N > 0: Store up to N bytes
+                - -1: Store full values (no limit)
+                - Default: 256 bytes (minimal overhead)
         
         Returns:
             region_id for later unwatch
@@ -140,7 +144,7 @@ class MemoryWatcher:
         metadata = {
             'variable_name': name,
             'type': type(obj).__name__,
-            'force_store': force_store
+            'max_value_bytes': max_value_bytes
         }
         
         region_id = self.adapter.track(obj, metadata)

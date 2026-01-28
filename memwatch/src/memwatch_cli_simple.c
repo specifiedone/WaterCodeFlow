@@ -25,21 +25,8 @@ typedef struct {
 
 static int cmd_run(const char *program, int argc, char **argv, const char *db_path, options_t opts) {
     if (tracker_init(db_path, opts.track_all_vars, opts.track_sql, opts.threads, opts.scope) < 0) {
-        fprintf(stderr, "❌ Failed to initialize tracker\n");
         return 1;
     }
-
-    printf("\n╔═══════════════════════════════════════════════════════════╗\n");
-    printf("║   MemWatch CLI - REAL Memory Tracking (mprotect+SIGSEGV)   ║\n");
-    printf("╠═══════════════════════════════════════════════════════════╣\n");
-    printf("║ Program:        %s\n", program);
-    printf("║ Database:       %s\n", db_path);
-    printf("║ Track All Vars: %s\n", opts.track_all_vars ? "YES ✅" : "NO");
-    printf("║ Track SQL:      %s\n", opts.track_sql ? "YES ✅" : "NO");
-    printf("║ Thread Aware:   %s\n", opts.threads ? "YES ✅" : "NO");
-    printf("║ Scope:          %s\n", opts.scope);
-    printf("║ Method:         mprotect() + SIGSEGV + Reprotect\n");
-    printf("╚═══════════════════════════════════════════════════════════╝\n\n");
 
     char **exec_argv = malloc((argc + 2) * sizeof(char *));
     exec_argv[0] = (char *)program;
@@ -93,17 +80,7 @@ static int cmd_run(const char *program, int argc, char **argv, const char *db_pa
     int status;
     waitpid(pid, &status, 0);
 
-    int events = tracker_get_event_count();
-    
     tracker_close();
-
-    printf("\n╔═══════════════════════════════════════════════════════════╗\n");
-    printf("║                   Tracking Complete!                        ║\n");
-    printf("╠═══════════════════════════════════════════════════════════╣\n");
-    printf("║ Memory changes recorded: %d\n", events);
-    printf("║ Database: %s\n", db_path);
-    printf("║ View results: ./build/memwatch_cli read %s\n", db_path);
-    printf("╚═══════════════════════════════════════════════════════════╝\n\n");
 
     if (WIFEXITED(status)) {
         return WEXITSTATUS(status);
@@ -117,7 +94,6 @@ static int cmd_read(const char *db_path) {
 
     int rc = sqlite3_open(db_path, &db);
     if (rc) {
-        fprintf(stderr, "❌ Cannot open database: %s\n", db_path);
         return 1;
     }
 
@@ -125,30 +101,14 @@ static int cmd_read(const char *db_path) {
 
     rc = sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
     if (rc != SQLITE_OK) {
-        fprintf(stderr, "❌ SQL error: %s\n", sqlite3_errmsg(db));
         sqlite3_close(db);
         return 1;
     }
 
-    printf("\n┌──────────────────────────────────────────────────────────────┐\n");
-    printf("│ Memory Changes (last 100 events)                             │\n");
-    printf("├────────────┬──────────────────────┬────────────┬────────────┤\n");
-    printf("│ Timestamp  │ Region               │ Old        │ New        │\n");
-    printf("├────────────┼──────────────────────┼────────────┼────────────┤\n");
-
     int count = 0;
     while (sqlite3_step(stmt) == SQLITE_ROW) {
-        int64_t ts = sqlite3_column_int64(stmt, 0);
-        const char *region = (const char *)sqlite3_column_text(stmt, 1);
-        const char *old = (const char *)sqlite3_column_text(stmt, 3);
-        const char *new = (const char *)sqlite3_column_text(stmt, 4);
-
-        printf("│ %10ld │ %-20s │ %-10s │ %-10s │\n", ts, region ?: "?", old ?: "?", new ?: "?");
         count++;
     }
-
-    printf("└────────────┴──────────────────────┴────────────┴────────────┘\n");
-    printf("Total: %d events\n\n", count);
 
     sqlite3_finalize(stmt);
     sqlite3_close(db);
@@ -156,20 +116,6 @@ static int cmd_read(const char *db_path) {
 }
 
 static void print_help(void) {
-    printf("\n╔═══════════════════════════════════════════════════════════╗\n");
-    printf("║          MemWatch - Real Memory Tracking                   ║\n");
-    printf("╚═══════════════════════════════════════════════════════════╝\n\n");
-    printf("USAGE:\n");
-    printf("  memwatch run <program> [args...] --storage <db.db> [OPTIONS]\n");
-    printf("  memwatch read <db.db>\n\n");
-    printf("OPTIONS:\n");
-    printf("  --track-all-vars    Auto-track all memory changes\n");
-    printf("  --track-sql         Track SQL operations\n");
-    printf("  --threads           Record thread IDs\n");
-    printf("  --scope SCOPE       Filter: global, local, or both\n\n");
-    printf("EXAMPLES:\n");
-    printf("  memwatch run python3 script.py --storage data.db --track-all-vars\n");
-    printf("  memwatch read data.db\n\n");
 }
 
 int main(int argc, char *argv[]) {
@@ -180,7 +126,6 @@ int main(int argc, char *argv[]) {
 
     if (strcmp(argv[1], "run") == 0) {
         if (argc < 4) {
-            fprintf(stderr, "❌ Usage: memwatch run <program> [args...] --storage <db.db>\n");
             return 1;
         }
 
@@ -198,7 +143,6 @@ int main(int argc, char *argv[]) {
         }
         
         if (!storage) {
-            fprintf(stderr, "❌ --storage path is required\n");
             return 1;
         }
         
@@ -217,7 +161,6 @@ int main(int argc, char *argv[]) {
 
     } else if (strcmp(argv[1], "read") == 0) {
         if (argc < 3) {
-            fprintf(stderr, "❌ Usage: memwatch read <database>\n");
             return 1;
         }
         return cmd_read(argv[2]);

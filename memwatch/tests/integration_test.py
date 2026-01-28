@@ -21,18 +21,11 @@ import time
 
 def test_basic_tracking():
     """Test 1: Basic tracking with small buffer"""
-    print("\n" + "="*60)
-    print("TEST 1: Basic Tracking")
-    print("="*60)
     
     events = []
     
     def callback(event):
         events.append(event)
-        print(f"✓ Event: {event.variable_name} changed")
-        print(f"  Size: {event.how_big} bytes")
-        if event.new_value:
-            print(f"  New value: {event.new_value[:30]}")
     
     watcher = MemoryWatcher()
     watcher.set_callback(callback)
@@ -40,36 +33,25 @@ def test_basic_tracking():
     # Track a buffer
     data = bytearray(b"Hello, memwatch!")
     region_id = watcher.watch(data, name="test_data")
-    print(f"Watching region {region_id}")
     
     # Modify
     data[0] = ord('J')
-    time.sleep(0.1)
+    time.sleep(0.15)
     
     assert len(events) > 0, "Should have received event"
     assert events[0].variable_name == "test_data", "Variable name should match"
     
-    print("✅ PASS: Basic tracking works")
     watcher.stop_all()
     return True
 
 
 def test_large_buffer():
     """Test 2: Large buffer with storage keys"""
-    print("\n" + "="*60)
-    print("TEST 2: Large Buffer (Storage Keys)")
-    print("="*60)
     
     events = []
     
     def callback(event):
         events.append(event)
-        print(f"✓ Event: {event.variable_name}")
-        print(f"  Size: {event.how_big:,} bytes")
-        if event.storage_key_new:
-            print(f"  Storage key: {event.storage_key_new}")
-        if event.new_preview:
-            print(f"  Preview length: {len(event.new_preview)} bytes")
     
     watcher = MemoryWatcher()
     watcher.set_callback(callback)
@@ -78,21 +60,19 @@ def test_large_buffer():
     large_buffer = bytearray(10 * 1024)  # 10 KB
     large_buffer[:100] = b"X" * 100
     
-    region_id = watcher.watch(large_buffer, name="large_buffer")
-    print(f"Watching large buffer (region {region_id})")
+    # Watch with full value storage
+    region_id = watcher.watch(large_buffer, name="large_buffer", max_value_bytes=-1)
     
     # Modify
     large_buffer[1000] = ord('Y')
-    time.sleep(0.2)
+    time.sleep(0.15)
     
     assert len(events) > 0, "Should have received event"
     
-    # For large buffers, should have storage key or preview
+    # With max_value_bytes=-1, should have full new_value
     event = events[0]
-    assert event.storage_key_new is not None or event.new_preview is not None, \
-        "Should have storage key or preview"
+    assert event.new_value is not None, "Should have new_value with max_value_bytes=-1"
     
-    print("✅ PASS: Large buffer tracking works")
     watcher.stop_all()
     return True
 

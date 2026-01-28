@@ -106,8 +106,11 @@ class MprotectAdapter(TrackerAdapter):
         # Create metadata ref (could be index into metadata table)
         metadata_ref = id(metadata)
         
+        # Get max_value_bytes from metadata (default 256)
+        max_value_bytes = metadata.get('max_value_bytes', 256)
+        
         # Track with native core
-        region_id = _native.track(addr, size, self.adapter_id, metadata_ref)
+        region_id = _native.track(addr, size, self.adapter_id, metadata_ref, max_value_bytes)
         
         # Keep reference to prevent GC
         self._region_to_obj[region_id] = (obj, mem_view, metadata)
@@ -166,6 +169,8 @@ class PollingAdapter(TrackerAdapter):
         else:
             mem_view = memoryview(obj)
         
+        max_value_bytes = metadata.get('max_value_bytes', 256)
+        
         with self._lock:
             region_id = self._next_region_id
             self._next_region_id += 1
@@ -179,7 +184,8 @@ class PollingAdapter(TrackerAdapter):
                 'metadata': metadata,
                 'last_hash': initial_hash,
                 'epoch': 0,
-                'seq': 0
+                'seq': 0,
+                'max_value_bytes': max_value_bytes
             }
         
         return region_id
@@ -242,7 +248,19 @@ class PollingAdapter(TrackerAdapter):
             if current_hash != region['last_hash']:
                 # Change detected
                 size = len(current_bytes)
-                preview_size = min(256, size)
+                max_value_bytes = region.get('max_value_bytes', 256)
+                
+                # Determine what value to include
+                new_value = None
+                if max_value_bytes == 0:
+                    # No value storage
+                    pass
+                elif max_value_bytes == -1:
+                    # Full value storage
+                    new_value = current_bytes
+                else:
+                    # Limited value storage
+                    new_value = current_bytes[:max_value_bytes]
                 
                 event = {
                     'seq': region['seq'],
@@ -252,9 +270,9 @@ class PollingAdapter(TrackerAdapter):
                     'variable_name': region['metadata'].get('variable_name'),
                     'where': {},
                     'how_big': size,
-                    'new_preview': current_bytes[:preview_size],
+                    'new_preview': None,
                     'old_preview': None,
-                    'new_value': current_bytes if size <= 4096 else None,
+                    'new_value': new_value,
                     'old_value': None,
                     'storage_key_old': None,
                     'storage_key_new': None,

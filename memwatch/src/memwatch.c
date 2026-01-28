@@ -48,6 +48,7 @@ typedef struct TrackedRegion {
     uint32_t adapter_id;
     uint32_t metadata_ref;
     uint32_t epoch;
+    int32_t max_value_bytes;  /* -1: full, 0: none, >0: limit */
     struct TrackedRegion *next_in_page;  /* linked list per page */
     uint64_t last_check_time_ns;
 } TrackedRegion;
@@ -247,8 +248,9 @@ static PyObject *mw_track(PyObject *self, PyObject *args) {
     uint64_t addr;
     size_t size;
     uint32_t adapter_id, metadata_ref;
+    int32_t max_value_bytes = 256;  /* Default to 256 bytes */
     
-    if (!PyArg_ParseTuple(args, "KnII", &addr, &size, &adapter_id, &metadata_ref)) {
+    if (!PyArg_ParseTuple(args, "KnII|i", &addr, &size, &adapter_id, &metadata_ref, &max_value_bytes)) {
         return NULL;
     }
     
@@ -291,6 +293,7 @@ static PyObject *mw_track(PyObject *self, PyObject *args) {
     region->adapter_id = adapter_id;
     region->metadata_ref = metadata_ref;
     region->epoch = 0;
+    region->max_value_bytes = max_value_bytes;
     region->last_check_time_ns = get_monotonic_ns();
     
     /* Compute initial hash */
@@ -554,26 +557,21 @@ static void *worker_thread_func(void *arg) {
                 PyDict_SetItemString(event_dict, "how_big", size_obj);
                 Py_DECREF(size_obj);
                 
-                /* Add previews */
-                size_t preview_len = (region->size < PREVIEW_SIZE) ? region->size : PREVIEW_SIZE;
-                memcpy(preview_buffer, (void*)region->addr, preview_len);
-                PyObject *preview_obj = PyBytes_FromStringAndSize((char*)preview_buffer, preview_len);
-                PyDict_SetItemString(event_dict, "new_preview", preview_obj);
-                Py_DECREF(preview_obj);
-                
-                /* For small regions, include full value */
-                if (region->size <= SMALL_COPY_THRESHOLD) {
+                /* Add value based on max_value_bytes setting */
+                if (region->max_value_bytes == 0) {
+                    /* No value storage requested */
+                } else if (region->max_value_bytes == -1) {
+                    /* Full value storage */
                     PyObject *value_obj = PyBytes_FromStringAndSize((char*)region->addr, region->size);
                     PyDict_SetItemString(event_dict, "new_value", value_obj);
                     Py_DECREF(value_obj);
                 } else {
-                    /* Large region - would use storage here */
-                    char storage_key[256];
-                    snprintf(storage_key, sizeof(storage_key), 
-                            "memwatch/%u/%u/%u", region->adapter_id, region->region_id, region->epoch);
-                    PyObject *storage_obj = PyUnicode_FromString(storage_key);
-                    PyDict_SetItemString(event_dict, "storage_key_new", storage_obj);
-                    Py_DECREF(storage_obj);
+                    /* Limited value storage */
+                    size_t store_len = (region->size < (size_t)region->max_value_bytes) ? 
+                                       region->size : (size_t)region->max_value_bytes;
+                    PyObject *value_obj = PyBytes_FromStringAndSize((char*)region->addr, store_len);
+                    PyDict_SetItemString(event_dict, "new_value", value_obj);
+                    Py_DECREF(value_obj);
                 }
                 
                 /* Add where info */

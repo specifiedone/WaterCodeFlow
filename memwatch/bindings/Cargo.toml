@@ -1,0 +1,15 @@
+[package]
+name = "memwatch"
+version = "1.0.0"
+edition = "2021"
+description = "Memory change watcher for Rust with unified API"
+
+[lib]
+name = "memwatch"
+path = "lib.rs"
+crate-type = ["rlib"]
+
+[dependencies]
+
+[profile.release]
+opt-level = 3
