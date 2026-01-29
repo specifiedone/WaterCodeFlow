@@ -56,6 +56,23 @@ cd "$PROJECT_DIR"
 echo ""
 
 # ==========================================
+# 0B. BUILD LIBMEMWATCH.SO (Preload Library)
+# ==========================================
+echo "0️⃣ B Building Preload Library (libmemwatch.so)..."
+mkdir -p build
+gcc -shared -fPIC -O2 -I./include src/memwatch_preload.c src/memwatch_tracker.c \
+    -lm -lpthread $(pkg-config --cflags --libs sqlite3 2>/dev/null | echo "-lsqlite3") -o build/libmemwatch.so 2>/tmp/preload_build.log
+if [ -f build/libmemwatch.so ] && [ -s build/libmemwatch.so ]; then
+    print_status "Preload Library" "✓"
+    ls -lh build/libmemwatch.so | awk '{print "  → Built: " $9 " (" $5 ")"}'
+else
+    print_status "Preload Library" "✗"
+    echo "  Error: libmemwatch.so compilation failed"
+    cat /tmp/preload_build.log | head -10
+fi
+echo ""
+
+# ==========================================
 # 1. PYTHON
 # ==========================================
 echo "1️⃣  Building Python..."
