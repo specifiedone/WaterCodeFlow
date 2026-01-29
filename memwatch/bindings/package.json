@@ -1,0 +1,14 @@
+{
+  "name": "memwatch",
+  "version": "1.0.0",
+  "description": "Universal memory tracking library",
+  "main": "memwatch.js",
+  "scripts": {
+    "test": "node test.js"
+  },
+  "dependencies": {},
+  "devDependencies": {},
+  "keywords": ["memory", "tracking", "monitor"],
+  "author": "",
+  "license": "MIT"
+}

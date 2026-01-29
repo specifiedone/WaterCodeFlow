@@ -86,12 +86,19 @@ class MemoryWatcher:
         data[0] = ord('H')  # Triggers callback
     """
     
-    def __init__(self, adapter: Optional['TrackerAdapter'] = None):
+    def __init__(self, adapter: Optional['TrackerAdapter'] = None, 
+                 track_all: bool = False,
+                 track_sql: bool = False, track_threads: bool = False,
+                 capture_old_values: bool = False):
         """
         Initialize watcher
         
         Args:
             adapter: Custom adapter (defaults to best available)
+            track_all: Track all variable changes (vs only explicitly watched)
+            track_sql: Enable SQL query tracking
+            track_threads: Enable thread ID tracking in events
+            capture_old_values: Capture old values before change (initial value at watch time)
         """
         if _native:
             _native.init()
@@ -101,7 +108,12 @@ class MemoryWatcher:
         
         self.adapter = adapter
         self._tracked_objects = {}  # region_id -> (obj, metadata)
+        self._initial_values = {}   # region_id -> initial value snapshot
         self._callback = None
+        self.track_all = track_all
+        self.track_sql = track_sql
+        self.track_threads = track_threads
+        self.capture_old_values = capture_old_values
         
         if _native:
             _native.set_callback(self._handle_native_event)
@@ -140,15 +152,29 @@ class MemoryWatcher:
         except TypeError:
             raise TypeError(f"Object type {type(obj)} does not support buffer protocol")
         
+        # Capture initial value if requested
+        initial_value = None
+        if self.capture_old_values:
+            try:
+                if isinstance(obj, (bytes, bytearray)):
+                    initial_value = bytes(obj)
+                else:
+                    initial_value = bytes(memoryview(obj))
+            except Exception:
+                initial_value = None
+        
         # Track with adapter
         metadata = {
             'variable_name': name,
             'type': type(obj).__name__,
-            'max_value_bytes': max_value_bytes
+            'max_value_bytes': max_value_bytes,
+            'capture_old_values': self.capture_old_values
         }
         
         region_id = self.adapter.track(obj, metadata)
         self._tracked_objects[region_id] = (obj, metadata)
+        if initial_value is not None:
+            self._initial_values[region_id] = initial_value
         
         return region_id
     
@@ -219,12 +245,18 @@ class MemoryWatcher:
             self._callback(event)
     
     def _enrich_event(self, event: ChangeEvent) -> ChangeEvent:
-        """Enrich event with tracked object metadata"""
+        """Enrich event with tracked object metadata and initial values"""
         if event.region_id in self._tracked_objects:
             obj, metadata = self._tracked_objects[event.region_id]
             if event.variable_name is None:
                 event.variable_name = metadata.get('variable_name')
             event.metadata.update(metadata)
+            
+            # Add initial value as old_value if capturing old values
+            if metadata.get('capture_old_values') and event.region_id in self._initial_values:
+                if event.old_value is None:
+                    event.old_value = self._initial_values[event.region_id]
+        
         return event
 
 

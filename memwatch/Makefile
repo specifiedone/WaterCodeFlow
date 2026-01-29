@@ -45,15 +45,8 @@ build: build-cli build-tracker build-preload build-python
 	@echo ""
 
 # ============================================================================
-# Build FastStorage C++ Library
+# Note: Using SQLite for C code (C++ FastStorage is Python-only via pybind11)
 # ============================================================================
-
-build-faststorage: build/lib_faststorage.so
-	@echo "✅ FastStorage library built: ./build/lib_faststorage.so"
-
-build/lib_faststorage.so: ../storage_utility/faststorage_c.cpp
-	@mkdir -p build
-	$(CXX) $(CXXFLAGS) -shared -fPIC -o $@ $< -lm -lpthread
 
 # ============================================================================
 # Build Real Memory Tracker
@@ -62,34 +55,32 @@ build/lib_faststorage.so: ../storage_utility/faststorage_c.cpp
 build-tracker: build/memwatch_tracker.o
 	@echo "✅ Tracker built"
 
-build/memwatch_tracker.o: src/memwatch_tracker.c src/faststorage_bridge.c include/memwatch_tracker.h include/faststorage_bridge.h
+build/memwatch_tracker.o: src/memwatch_tracker.c include/memwatch_tracker.h
 	@mkdir -p build
 	$(CC) $(CFLAGS) -c src/memwatch_tracker.c -o build/memwatch_tracker_obj.o
-	$(CC) $(CFLAGS) -c src/faststorage_bridge.c -o build/faststorage_bridge_obj.o
 	@echo "Objects compiled"
 
 # ============================================================================
 # Build CLI Tool  
 # ============================================================================
 
-build-cli: build-faststorage build/memwatch_cli
+build-cli: build/memwatch_cli
 	@echo "✅ CLI tool built: ./build/memwatch_cli"
 
-build/memwatch_cli: src/memwatch_cli_simple.c src/memwatch_tracker.c src/faststorage_bridge.c include/memwatch_tracker.h include/faststorage_bridge.h
+build/memwatch_cli: src/memwatch_cli_simple.c src/memwatch_tracker.c include/memwatch_tracker.h
 	@mkdir -p build
-	$(CC) $(CFLAGS) -o $@ src/memwatch_cli_simple.c src/memwatch_tracker.c src/faststorage_bridge.c -I./include -lpthread -lsqlite3 -lm -ldl
-
+	$(CC) $(CFLAGS) -o $@ src/memwatch_cli_simple.c src/memwatch_tracker.c -I./include -lpthread -lsqlite3 -lm -ldl
 # ============================================================================
 # Build LD_PRELOAD Library
 # ============================================================================
 
-build-preload: build-faststorage build/libmemwatch.so
+build-preload: build/libmemwatch.so
+	@echo "✅ Preload li/libmemwatch.so
 	@echo "✅ Preload library built: ./build/libmemwatch.so"
 
-build/libmemwatch.so: src/memwatch_preload.c src/memwatch_tracker.c src/faststorage_bridge.c include/memwatch_tracker.h include/faststorage_bridge.h
+build/libmemwatch.so: src/memwatch_preload.c src/memwatch_tracker.c include/memwatch_tracker.h
 	@mkdir -p build
-	$(CC) -shared -fPIC $(CFLAGS) -o $@ src/memwatch_preload.c src/memwatch_tracker.c src/faststorage_bridge.c -I./include -lpthread -lsqlite3 -lm -ldl
-	@echo ""
+	$(CC) -shared -fPIC $(CFLAGS) -o $@ src/memwatch_preload.c src/memwatch_tracker
 	@echo "View results:"
 	@echo "  ./build/memwatch_cli read results.db"
 	@echo ""

@@ -42,6 +42,7 @@
 #define MAX_VARIABLES 1024
 #define STORAGE_BUFFER_SIZE (1024 * 1024)  /* 1 MB */
 #define STORAGE_FLUSH_INTERVAL_MS 100
+#define MEMWATCH_LIB_DIR "/workspaces/WaterCodeFlow/memwatch/build"
 
 /* ============================================================================
  * Types
@@ -391,7 +392,39 @@ static int cmd_run(cli_args_t *args) {
     }
     
     if (g_child_pid == 0) {
-        /* Child process: execute the program */
+        /* Child process: inject memwatch via LD_PRELOAD */
+        char *ld_preload = getenv("LD_PRELOAD");
+        char *ld_library = getenv("LD_LIBRARY_PATH");
+        char preload_buf[1024];
+        char library_buf[1024];
+        
+        /* Set LD_LIBRARY_PATH to find libmemwatch.so */
+        snprintf(library_buf, sizeof(library_buf), "%s%s%s",
+                 MEMWATCH_LIB_DIR,
+                 ld_library ? ":" : "",
+                 ld_library ? ld_library : "");
+        setenv("LD_LIBRARY_PATH", library_buf, 1);
+        
+        /* Set LD_PRELOAD to inject memwatch library */
+        snprintf(preload_buf, sizeof(preload_buf), "%s/libmemwatch.so%s%s",
+                 MEMWATCH_LIB_DIR,
+                 ld_preload ? ":" : "",
+                 ld_preload ? ld_preload : "");
+        setenv("LD_PRELOAD", preload_buf, 1);
+        
+        /* Pass database path to child via environment */
+        if (args->storage_path) {
+            setenv("MEMWATCH_DB", args->storage_path, 1);
+            setenv("MEMWATCH_VARS", "1", 1);
+            setenv("MEMWATCH_SQL", "1", 1);
+            setenv("MEMWATCH_THREADS", 
+                   args->track_threads ? "1" : "0", 1);
+            setenv("MEMWATCH_SCOPE", 
+                   args->scope == SCOPE_GLOBAL ? "global" :
+                   args->scope == SCOPE_LOCAL ? "local" : "both", 1);
+        }
+        
+        /* Execute the program - use execvp to search PATH */
         char **argv = malloc(sizeof(char *) * (args->exe_argc + 2));
         argv[0] = args->executable;
         for (int i = 0; i < args->exe_argc; i++) {

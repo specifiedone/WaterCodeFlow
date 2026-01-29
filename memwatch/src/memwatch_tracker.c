@@ -21,7 +21,6 @@
 #include <errno.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include "faststorage_bridge.h"
 
 #define MAX_TRACKED_REGIONS 256
 #define MAX_EVENTS_BEFORE_FLUSH 1000
@@ -87,15 +86,8 @@ static __thread int tl_current_line = 0;
  * ============================================================================ */
 
 static int init_database(const char *path) {
-    /* Try FastStorage first (100 MB capacity) */
-    if (faststorage_bridge_init(path, 100 * 1024 * 1024) == 0) {
-        g_tracker.use_faststorage = 1;
-        printf("✅ Using FastStorage backend (mmap-based, ultra-fast)\n");
-        return 0;
-    }
-    
-    /* Fallback to SQLite */
-    printf("⚠️  FastStorage unavailable, falling back to SQLite\n");
+    /* Using SQLite for C code */
+    printf("✅ Using SQLite backend\n");
     g_tracker.use_faststorage = 0;
     
     int rc = sqlite3_open(path, &g_tracker.db);
@@ -180,7 +172,6 @@ static void flush_events_to_database(void) {
                      evt->file_name[0] ? evt->file_name : "none",
                      evt->function_name[0] ? evt->function_name : "none",
                      evt->line_number);
-            faststorage_bridge_write(key, value);
         } else {
             /* Store in SQLite (traditional SQL) - create table if needed */
             const char *create_table = 
@@ -396,9 +387,7 @@ void tracker_close(void) {
     }
 
     /* Close storage backend */
-    if (g_tracker.use_faststorage) {
-        faststorage_bridge_close();
-    } else if (g_tracker.db) {
+    if (g_tracker.db) {
         sqlite3_close(g_tracker.db);
     }
 
@@ -446,15 +435,7 @@ void tracker_log_sql_query(const char *query_text) {
     clock_gettime(CLOCK_MONOTONIC, &ts);
     long long timestamp_ms = (ts.tv_sec * 1000LL) + (ts.tv_nsec / 1000000LL);
 
-    if (g_tracker.use_faststorage) {
-        /* Store in FastStorage */
-        char key[128], value[2048];
-        static int sql_id = 0;
-        snprintf(key, sizeof(key), "sql:%d", sql_id++);
-        snprintf(value, sizeof(value), "%lld|%s|%s|%ld",
-                 timestamp_ms, query_text, query_type, thread_id);
-        faststorage_bridge_write(key, value);
-    } else {
+    if (g_tracker.db) {
         /* Store in SQLite */
         char query[2048];
         snprintf(query, sizeof(query),
@@ -482,14 +463,14 @@ void tracker_step(void) {
 
 void tracker_set_context(const char *filename, const char *funcname, int line_num) {
     if (filename) {
-        strncpy(g_tracker.current_file, filename, sizeof(g_tracker.current_file) - 1);
-        g_tracker.current_file[sizeof(g_tracker.current_file) - 1] = 0;
+        strncpy(tl_current_file, filename, sizeof(tl_current_file) - 1);
+        tl_current_file[sizeof(tl_current_file) - 1] = 0;
     }
     if (funcname) {
-        strncpy(g_tracker.current_function, funcname, sizeof(g_tracker.current_function) - 1);
-        g_tracker.current_function[sizeof(g_tracker.current_function) - 1] = 0;
+        strncpy(tl_current_function, funcname, sizeof(tl_current_function) - 1);
+        tl_current_function[sizeof(tl_current_function) - 1] = 0;
     }
-    g_tracker.current_line = line_num;
+    tl_current_line = line_num;
 }
 
 void tracker_func_enter(const char *func_name, const char *file_name) {
