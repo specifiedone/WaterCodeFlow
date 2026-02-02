@@ -1,0 +1,173 @@
+# MemWatch — Concise Implementation Spec
+
+> Purpose: minimal, unambiguous, build-ready spec for the hackathon MVP. No fluff.
+
+---
+
+## Quick summary
+
+* Scope: **single-process, same-user**, Linux-only MVP.
+* Guarantee: every write that reaches a registered page generates **at least one event** (no silent misses).
+* Mechanism: Linux `userfaultfd` WRITE-PROTECT (WP) mode.
+* Strategy: one tracked variable → one page (mmap). Adapter maps high-level variable → page address and registers it with core.
+* Fault flow: write → kernel blocks thread → core reads uffd_msg → read `/proc/<tid>/syscall` for IP → resolve symbol → UFFDIO_WRITEPROTECT(mode=0) → write completes → UFFDIO_WRITEPROTECT(mode=WP).
+
+---
+
+## Requirements
+
+* OS: Linux with `userfaultfd` and WP support (kernel ≳ 4.14; WP improvements later). Document kernel min version in README.
+* Build: gcc/clang, pthreads.
+* Binaries for demo compiled with `-g` (debug symbols).
+* Privileges: same-user process; no special capabilities for fast-path procfs method.
+
+---
+
+## Core primitives (APIs & ioctls)
+
+> All ioctls are issued by **core only**. Adapters never touch `userfaultfd`.
+
+* `syscall(__NR_userfaultfd, flags)` → fd
+* `UFFDIO_API` with `uffdio_api.api = UFFD_API` and `uffdio_api.features |= UFFD_FEATURE_THREAD_ID`
+* `UFFDIO_REGISTER` with `.mode = UFFDIO_REGISTER_MODE_WP`
+* `UFFDIO_WRITEPROTECT` to set/clear WP on a page range
+* Read `struct uffd_msg` from userfaultfd for events (look for `msg.arg.pagefault.flags & UFFD_PAGEFAULT_FLAG_WP`)
+
+Key structs: `uffdio_api`, `uffdio_register`, `uffdio_writeprotect`, `uffd_msg` (kernel headers).
+
+---
+
+## Data model (core)
+
+* `PageEntry { page_base, page_len (4k), variable_id, adapter_id, pre_snapshot_ptr }`
+* `DirtyEvent { event_id, ts_ns, page_base, fault_addr, tid, ip, symbol, pre_checksum }`
+* Persistent event after slow-path: include delta ranges and variable_id mapping.
+
+Identifier rules: `variable_id = uuid()` assigned by adapter on register.
+
+---
+
+## Adapter → Core contract (concrete)
+
+> This is a **hard boundary**. If something cannot be expressed here, it does not belong in core.
+> **register_variable(address_or_value, size, flags, human_name) -> variable_id**
+
+* If `address_or_value` is a runtime value (stack/local), adapter must allocate a page (`mmap`) and copy value (shadow-copy) and return page address.
+* Adapter must `touch` page (write one byte) before registering.
+* Adapter must guarantee lifetime until `unregister_variable(variable_id)` called.
+
+**unregister_variable(variable_id)**
+**read_snapshot(variable_id) -> bytes**
+**write_snapshot(variable_id, bytes)**
+
+Flags: `track_threads`, `track_sql`, `output_dir`, `mutation_depth`.
+
+---
+
+## Fast-path handler pseudocode (must be implemented in C)
+
+> Ordering matters. Do **not** reorder unprotect / re-protect steps.
+
+```c
+// setup userfaultfd, enable features
+int uffd = syscall(__NR_userfaultfd, O_CLOEXEC | O_NONBLOCK);
+ioctl(uffd, UFFDIO_API, &api);
+
+// register pages (per adapter calls)
+ioctl(uffd, UFFDIO_REGISTER, &reg);
+ioctl(uffd, UFFDIO_WRITEPROTECT, &wp_set);
+
+// handler thread loop
+while (read(uffd, &msg, sizeof(msg)) == sizeof(msg)) {
+  if (!(msg.arg.pagefault.flags & UFFD_PAGEFAULT_FLAG_WP)) continue;
+  page_base = msg.arg.pagefault.address & ~4095UL;
+  tid = msg.arg.pagefault.feat.ptid; // requires UFFD_FEATURE_THREAD_ID
+  // fast IP extraction
+  ip = get_ip_from_proc_syscall(tid); // parse /proc/<tid>/syscall
+  emit_minimal_event_enqueue(page_base, msg.arg.pagefault.address, tid, ip);
+  // unprotect -> kernel allows write (write completes before resuming)
+  wp_clear.range.start = page_base; wp_clear.range.len = 4096; wp_clear.mode = 0;
+  ioctl(uffd, UFFDIO_WRITEPROTECT, &wp_clear);
+  // re-protect
+  wp_clear.mode = UFFDIO_WRITEPROTECT_MODE_WP; ioctl(uffd, UFFDIO_WRITEPROTECT, &wp_clear);
+}
+```
+
+Notes: critical path must avoid heavy allocations; enqueue minimal record for background processing.
+
+---
+
+## Slow-path processing (background worker)
+
+> Runs in a separate thread or process. Fast-path must remain O(1) per fault.
+
+* Take event, read `pre_snapshot` (from registry), read `post_snapshot` from page_base memory, compute delta (memcmp), compute checksums, map delta offsets to adapter-provided variable ranges, enrich event, persist JSONL to `output_dir`.
+* Symbol resolution: call `addr2line -e /proc/<pid>/exe -f -C 0x<ip>` once per unique `ip` and cache results. Replace with `libdw` for performance if time.
+
+---
+
+## Instruction pointer extraction (fast, no ptrace)
+
+* Read `/proc/<tid>/syscall` line: parse last hex token → `ip`.
+* Fallback if unreadable: use `PTRACE_SEIZE + PTRACE_INTERRUPT + PTRACE_GETREGS` (requires capability/ptrace_scope changes). Document fallback.
+
+---
+
+## Event schema (JSONL minimal fields)
+
+```json
+{ "event_id":"u","ts_ns":0, "page_base":"0x...", "fault_addr":"0x...", "tid":1234, "ip":"0x...", "symbol":"func","file":"/path.c","line":42, "deltas":[{"offset":0,"len":4,"old":"...","new":"..."}], "variable_ids":["v-uuid"] }
+```
+
+---
+
+## Stack handling (adapter algorithm)
+
+1. Adapter detects stack/local value to watch.
+2. `p = mmap(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);`
+3. memcpy(p, &orig_value, size); `touch(p);`
+4. create proxy that reads/writes `p` (language binding) and register `p` with core.
+5. Ensure all future writes use proxy (adapter must rewrite references / provide proxy API).
+
+---
+
+## Failure modes (explicit)
+
+> All of these must be logged, none are fatal for MVP.
+
+* `addr2line` returns `??` if no debug symbols → show IP only.
+* Hot tight loops produce many faults → provide sampling or disable for that variable.
+* Dense pages with multiple logical variables → ambiguous deltas; avoid in demo.
+* `/proc/<tid>/syscall` unreadable in container / seccomp → fallback to ptrace.
+
+---
+
+## Tests (must pass)
+
+* E2E: watch variable, write, assert event file:line equals writing line.
+* Multi-thread: two threads write same page; events show both tids and correct ordering.
+* Stack relocation: watch stack var, mutate, event contains correct delta.
+* Failure tests: missing `-g`, heavy write storms.
+
+---
+
+## Minimal build & run (commands)
+
+```bash
+gcc -g -O0 -o memwatch core/uffd_core.c -pthread
+# run your demo program that links to adapter which registers page
+./memwatch
+```
+
+---
+
+## 19-day micro plan (tasks)
+
+* Day 1: core uffd loop + single page register + handler enqueue
+* Day 2: fast IP extraction (/proc/syscall) + addr2line cache
+* Day 3: slow-path diff + JSONL events
+* Day 4: python adapter + watch(x) sugar (proxy & register)
+* Day 5: multi-thread tests + stack relocation tests
+* Day 6: CLI + simple web UI
+* Day 7: polish + README + demo script
+
